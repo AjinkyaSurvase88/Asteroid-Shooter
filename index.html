@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Asteroid Shooter Pro - VS Code Edition</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            background-color: #0d1117;
+            color: #ffffff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            font-family: 'Orbitron', sans-serif;
+            overflow: hidden;
+        }
+
+        #gameCanvas {
+            border: 2px solid #1f6feb;
+            background-color: #010409;
+            box-shadow: 0 0 30px rgba(31, 111, 235, 0.4);
+            touch-action: none;
+            display: block;
+            width: 95vw;
+            max-width: 800px;
+            aspect-ratio: 1 / 1;
+            margin-bottom: 20px;
+        }
+
+        .controls-container {
+            display: flex;
+            justify-content: space-around;
+            width: 95vw;
+            max-width: 800px;
+            padding: 10px 0;
+            user-select: none;
+        }
+
+        .control-button {
+            padding: 15px 25px;
+            font-size: 1.2rem;
+            font-weight: bold;
+            color: #fff;
+            background-color: #4a5568;
+            border: none;
+            border-radius: 12px;
+            box-shadow: 0 4px 0 #2d3748;
+            transition: all 0.1s;
+            cursor: pointer;
+            flex: 1;
+            margin: 0 5px;
+            opacity: 0.9;
+            min-width: 70px;
+            height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .control-button:active {
+            box-shadow: 0 0 0 #2d3748;
+            transform: translateY(4px);
+            opacity: 1;
+        }
+
+        #thrust-btn { background-color: #48bb78; box-shadow: 0 4px 0 #38a169; }
+        #shoot-btn { background-color: #e53e3e; box-shadow: 0 4px 0 #c53030; }
+        #left-btn, #right-btn { background-color: #63b3ed; box-shadow: 0 4px 0 #4299e1; }
+
+        .info-bar {
+            width: 95vw;
+            max-width: 800px;
+            display: flex;
+            justify-content: space-between;
+            padding: 10px;
+            font-size: 1.1rem;
+            color: #90cdf4;
+        }
+        
+        .game-over-message {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(0, 0, 0, 0.95);
+            padding: 30px;
+            border-radius: 15px;
+            border: 3px solid #e53e3e;
+            text-align: center;
+            z-index: 10;
+            width: 90%;
+            max-width: 400px;
+        }
+
+        .game-over-message input {
+            width: 80%;
+            padding: 8px;
+            margin-bottom: 15px;
+            border-radius: 5px;
+            border: 1px solid #1f6feb;
+            background-color: #0d1117;
+            color: white;
+            text-align: center;
+        }
+        
+        #leaderboard {
+            margin-top: 20px;
+            text-align: left;
+            width: 100%;
+            max-height: 200px;
+            overflow-y: auto;
+            padding: 0 10px;
+        }
+
+        #leaderboard li {
+            font-size: 1rem;
+            padding: 5px 0;
+            border-bottom: 1px dashed #2d3748;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        /* Pulsing animation for text */
+        .level-text {
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 0.6; }
+            50% { opacity: 1; }
+            100% { opacity: 0.6; }
+        }
+    </style>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, query, orderBy, limit, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        window.firebase = {
+            initializeApp, getAuth, signInAnonymously, getFirestore,
+            collection, addDoc, query, orderBy, limit, getDocs
+        };
+    </script>
+</head>
+<body>
+
+    <div id="game-container" class="relative">
+        <div class="info-bar">
+            <span id="score-display">Score: 0</span>
+            <span id="lives-display">Lives: 3</span>
+        </div>
+        <canvas id="gameCanvas" width="800" height="800"></canvas>
+
+        <div id="game-over" class="game-over-message hidden">
+            <h2 class="text-3xl font-bold text-red-500 mb-2">GAME OVER</h2>
+            <p>Final Score: <span id="final-score">0</span></p>
+            <label class="block mt-4 mb-1 text-blue-300">Enter Pilot Name:</label>
+            <input type="text" id="player-name" maxlength="10" placeholder="AstroPilot">
+            <button id="submit-score-btn" class="bg-green-500 hover:bg-green-600 px-6 py-2 rounded font-bold shadow-lg">Submit & Restart</button>
+            <div id="leaderboard">
+                <h3 class="text-xl text-blue-300 border-b border-blue-800 pb-2 mb-2 text-center">High Scores</h3>
+                <ol id="score-list">
+                    <li>Loading...</li>
+                </ol>
+            </div>
+            <div id="auth-status" class="text-xs text-blue-400 mt-2"></div>
+        </div>
+    </div>
+
+    <div class="controls-container">
+        <button id="left-btn" class="control-button">&lt; Left</button>
+        <button id="right-btn" class="control-button">Right &gt;</button>
+        <button id="thrust-btn" class="control-button">Thrust</button>
+        <button id="shoot-btn" class="control-button">Shoot</button>
+    </div>
+
+    <script>
+        // --- CONFIGURATION ---
+        const firebaseConfig = {
+            apiKey: "YOUR_API_KEY",
+            authDomain: "YOUR_PROJECT.firebaseapp.com",
+            projectId: "YOUR_PROJECT_ID",
+            storageBucket: "YOUR_PROJECT.appspot.com",
+            messagingSenderId: "YOUR_ID",
+            appId: "YOUR_APP_ID"
+        };
+
+        const LOCAL_APP_ID = "asteroid-shooter-v1";
+        const SCORE_COLLECTION_PATH = `leaderboard/${LOCAL_APP_ID}/scores`;
+
+        // --- FIREBASE GLOBALS ---
+        let db, auth, userId = 'local-user';
+        
+        // --- GAME CONSTANTS ---
+        const FPS = 30;
+        const SHIP_SIZE = 35; // Slightly larger for detail
+        const TURN_SPEED = 360; 
+        const THRUST = 5; 
+        const FRICTION = 0.7; 
+        const MAX_SPEED = 200; 
+        const BULLET_SPEED = 500; 
+        const BULLET_MAX_DIST = 0.5;
+        const ASTEROID_COUNT = 3; 
+        const ASTEROID_MULTIPLIER = 1.5;
+        const ASTEROID_SPEED = 50; 
+        const ASTEROID_SIZE_L = 100; 
+        const SHIP_EXPLODE_DURATION = 0.5; 
+        const INVULNERABILITY_DURATION = 3; 
+        const BLINK_DUR = 0.1;
+        const ALIEN_SPAWN_CHANCE = 0.005;
+        const ALIEN_SPEED = 70;
+        const ALIEN_FIRE_RATE = 2;
+        const ALIEN_BULLET_SPEED = 200;
+        const ALIEN_POINTS = 200;
+
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+        let ship, asteroids, bullets, alienBullets, aliens, particles, powerUps, score, lives, game_over, level, text, text_alpha, ship_exploding, invulnerability_timer, blink_on;
+        let lastTime = 0;
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+        function playSound(type) {
+            if (!audioCtx) return;
+            const oscillator = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            let frequency = 440;
+            let duration = 0.1;
+            switch (type) {
+                case 'shoot': frequency = 880; duration = 0.05; gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime); break;
+                case 'explode': frequency = 150; duration = 0.4; gainNode.gain.setValueAtTime(0.2, audioCtx.currentTime); break;
+                case 'powerup': frequency = 1200; duration = 0.15; gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime); break;
+                case 'alien-shoot': frequency = 300; duration = 0.1; gainNode.gain.setValueAtTime(0.05, audioCtx.currentTime); oscillator.type = 'sawtooth'; break;
+            }
+            oscillator.frequency.setValueAtTime(frequency, audioCtx.currentTime);
+            oscillator.start();
+            oscillator.stop(audioCtx.currentTime + duration);
+        }
+
+        async function initFirebase() {
+            if (firebaseConfig.apiKey === "YOUR_API_KEY") {
+                document.getElementById('auth-status').innerText = 'Offline Mode (No Leaderboard)';
+                return;
+            }
+            try {
+                const app = firebase.initializeApp(firebaseConfig);
+                db = firebase.getFirestore(app);
+                auth = firebase.getAuth(app);
+                await firebase.signInAnonymously(auth);
+                userId = auth.currentUser.uid;
+                document.getElementById('auth-status').innerText = 'Online: Leaderboard Active';
+            } catch (e) {
+                console.warn("Firebase Auth failed. Running in offline mode.");
+            }
+        }
+
+        async function saveScore(name, finalScore) {
+            if (!db) return;
+            try {
+                await firebase.addDoc(firebase.collection(db, SCORE_COLLECTION_PATH), {
+                    name, score: finalScore, timestamp: Date.now()
+                });
+            } catch (e) { console.error(e); }
+        }
+
+        async function loadScores() {
+            const list = document.getElementById('score-list');
+            if (!db) { list.innerHTML = "<li>Offline</li>"; return; }
+            try {
+                const q = firebase.query(firebase.collection(db, SCORE_COLLECTION_PATH), firebase.orderBy('score', 'desc'), firebase.limit(5));
+                const snap = await firebase.getDocs(q);
+                let html = '';
+                snap.forEach(doc => {
+                    const d = doc.data();
+                    html += `<li>${d.name} <span>${d.score}</span></li>`;
+                });
+                list.innerHTML = html || "<li>No scores yet</li>";
+            } catch (e) { list.innerHTML = "<li>Error loading</li>"; }
+        }
+
+        function setupCanvasSize() {
+            const size = Math.min(window.innerWidth * 0.95, 800);
+            canvas.width = size;
+            canvas.height = size;
+        }
+
+        function newGame() {
+            document.getElementById("game-over").classList.add("hidden");
+            setupCanvasSize();
+            ship = new Ship();
+            asteroids = []; bullets = []; alienBullets = []; aliens = []; particles = []; powerUps = [];
+            score = 0; lives = 3; level = 0; game_over = false;
+            text_alpha = 0; ship_exploding = false; invulnerability_timer = INVULNERABILITY_DURATION;
+            document.getElementById("score-display").innerText = `Score: 0`;
+            document.getElementById("lives-display").innerText = `Lives: 3`;
+            newLevel();
+            lastTime = performance.now();
+            requestAnimationFrame(gameLoop);
+        }
+
+        function newLevel() {
+            level++;
+            text = level === 1 ? `LEVEL ${level}` : `LEVEL ${level} - MORE ENEMIES!`;
+            text_alpha = 1.0;
+            if (!ship_exploding) ship.respawn();
+            createAsteroidBelt();
+        }
+
+        function createAsteroidBelt() {
+            const total = ASTEROID_COUNT + Math.floor(level * ASTEROID_MULTIPLIER); 
+            for (let i = 0; i < total; i++) {
+                let x, y;
+                do {
+                    x = Math.random() * canvas.width;
+                    y = Math.random() * canvas.height;
+                } while (distanceBetweenPoints(ship.x, ship.y, x, y) < 150);
+                asteroids.push(new Asteroid(x, y, ASTEROID_SIZE_L / 2));
+            }
+        }
+//
+        class Ship {
+            constructor() {
+                this.x = canvas.width / 2;
+                this.y = canvas.height / 2;
+                this.r = SHIP_SIZE / 2;
+                this.a = Math.PI / 2;
+                this.rot = 0;
+                this.thrusting = false;
+                this.thrust = { x: 0, y: 0 };
+                this.canShoot = true;
+                this.explode_time = 0;
+                this.bullet_offset_toggle = 1;
+                this.engineTimer = 0;
+                this.setControls();
+            }
+            respawn() {
+                this.x = canvas.width / 2; this.y = canvas.height / 2; this.a = Math.PI / 2;
+                this.thrust = { x: 0, y: 0 }; invulnerability_timer = INVULNERABILITY_DURATION;
+                ship_exploding = false;
+                this.explode_time = 0;
+            }
+            explode() {
+                if (ship_exploding) return;
+                ship_exploding = true;
+                this.explode_time = 0;
+                playSound('explode');
+            }
+            draw(dt) {
+                if (ship_exploding) {
+                    this.explode_time += dt;
+                    ctx.fillStyle = "#ff4d00";
+                    for (let i = 0; i < 20; i++) {
+                        ctx.beginPath();
+                        ctx.arc(this.x + (Math.random()-0.5)*60, this.y + (Math.random()-0.5)*60, Math.random()*4, 0, Math.PI*2);
+                        ctx.fill();
+                    }
+                    if (this.explode_time >= SHIP_EXPLODE_DURATION) {
+                        lives--;
+                        document.getElementById("lives-display").innerText = `Lives: ${lives}`;
+                        if (lives <= 0) gameOver(); else this.respawn();
+                    }
+                } else {
+                    blink_on = (invulnerability_timer <= 0) || (invulnerability_timer % (BLINK_DUR * 2) < BLINK_DUR);
+                    if (invulnerability_timer > 0 && !blink_on) return;
+
+                    ctx.save();
+                    ctx.translate(this.x, this.y);
+                    ctx.rotate(-this.a + Math.PI/2); // Adjust for standard math vs canvas rotation
+
+                    // Engine Glow Animation
+                    if (this.thrusting) {
+                        this.engineTimer += dt * 20;
+                        let flicker = Math.sin(this.engineTimer) * 5;
+                        
+                        // Outer flame
+                        ctx.fillStyle = "rgba(255, 100, 0, 0.6)";
+                        ctx.beginPath();
+                        ctx.moveTo(-this.r * 0.4, this.r * 0.5);
+                        ctx.lineTo(0, this.r * (1.5 + flicker/10));
+                        ctx.lineTo(this.r * 0.4, this.r * 0.5);
+                        ctx.fill();
+
+                        // Inner plasma
+                        ctx.fillStyle = "rgba(0, 200, 255, 0.8)";
+                        ctx.beginPath();
+                        ctx.moveTo(-this.r * 0.2, this.r * 0.5);
+                        ctx.lineTo(0, this.r * (1.0 + flicker/15));
+                        ctx.lineTo(this.r * 0.2, this.r * 0.5);
+                        ctx.fill();
+                    }
+
+                    // Ship Shadow/Glow
+                    ctx.shadowBlur = 15;
+                    ctx.shadowColor = "#1f6feb";
+
+                    // Side Wings
+                    ctx.fillStyle = "#2d3748";
+                    ctx.strokeStyle = "#4a5568";
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    ctx.moveTo(-this.r * 0.4, this.r * 0.2);
+                    ctx.lineTo(-this.r * 0.9, this.r * 0.6);
+                    ctx.lineTo(-this.r * 0.4, this.r * 0.4);
+                    ctx.fill();
+                    ctx.stroke();
+
+                    ctx.beginPath();
+                    ctx.moveTo(this.r * 0.4, this.r * 0.2);
+                    ctx.lineTo(this.r * 0.9, this.r * 0.6);
+                    ctx.lineTo(this.r * 0.4, this.r * 0.4);
+                    ctx.fill();
+                    ctx.stroke();
+
+                    // Fuselage (Body)
+                    ctx.fillStyle = "#cbd5e0";
+                    ctx.beginPath();
+                    ctx.moveTo(0, -this.r * 1.2); // Pointy Nose
+                    ctx.lineTo(-this.r * 0.5, this.r * 0.6);
+                    ctx.lineTo(0, this.r * 0.4);
+                    ctx.lineTo(this.r * 0.5, this.r * 0.6);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.strokeStyle = "#1f6feb";
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+
+                    // Cockpit
+                    ctx.fillStyle = "rgba(0, 255, 255, 0.6)";
+                    ctx.beginPath();
+                    ctx.ellipse(0, -this.r * 0.3, this.r * 0.2, this.r * 0.35, 0, 0, Math.PI*2);
+                    ctx.fill();
+                    ctx.strokeStyle = "white";
+                    ctx.lineWidth = 1;
+                    ctx.stroke();
+
+                    ctx.restore();
+                }
+            }
+            update(dt) {
+                if (ship_exploding) return;
+                this.a += this.rot * dt;
+                if (this.thrusting) {
+                    this.thrust.x += THRUST * Math.cos(this.a) * dt;
+                    this.thrust.y -= THRUST * Math.sin(this.a) * dt;
+                }
+                this.thrust.x *= FRICTION ** dt; this.thrust.y *= FRICTION ** dt;
+                this.x += this.thrust.x; this.y += this.thrust.y;
+                if (this.x < -this.r) this.x = canvas.width + this.r; else if (this.x > canvas.width + this.r) this.x = -this.r;
+                if (this.y < -this.r) this.y = canvas.height + this.r; else if (this.y > canvas.height + this.r) this.y = -this.r;
+            }
+            shoot() {
+                if (!this.canShoot || ship_exploding) return;
+                playSound('shoot');
+                const off = 10 * this.bullet_offset_toggle;
+                // Fire from wingtips
+                const bx = this.x + off * Math.cos(this.a + Math.PI/2) + this.r * 0.2 * Math.cos(this.a);
+                const by = this.y - off * Math.sin(this.a + Math.PI/2) - this.r * 0.2 * Math.sin(this.a);
+                bullets.push(new Bullet(bx, by, this.a));
+                this.bullet_offset_toggle *= -1;
+                this.canShoot = false;
+                setTimeout(() => this.canShoot = true, 200);
+            }
+            setControls() {
+                const keys = {};
+                window.onkeydown = (e) => { keys[e.code] = true; if(e.code === 'Space') this.shoot(); };
+                window.onkeyup = (e) => keys[e.code] = false;
+                this.updateFromKeys = () => {
+                    this.rot = (keys['ArrowLeft'] || keys['KeyA']) ? (TURN_SPEED * Math.PI / 180) : (keys['ArrowRight'] || keys['KeyD']) ? -(TURN_SPEED * Math.PI / 180) : 0;
+                    this.thrusting = keys['ArrowUp'] || keys['KeyW'];
+                };
+                document.getElementById('left-btn').ontouchstart = (e) => { e.preventDefault(); this.rot = 6; };
+                document.getElementById('left-btn').ontouchend = () => this.rot = 0;
+                document.getElementById('right-btn').ontouchstart = (e) => { e.preventDefault(); this.rot = -6; };
+                document.getElementById('right-btn').ontouchend = () => this.rot = 0;
+                document.getElementById('thrust-btn').ontouchstart = (e) => { e.preventDefault(); this.thrusting = true; };
+                document.getElementById('thrust-btn').ontouchend = () => this.thrusting = false;
+                document.getElementById('shoot-btn').onclick = (e) => { e.preventDefault(); this.shoot(); };
+            }
+        }
+
+        class Bullet {
+            constructor(x, y, a) { this.x = x; this.y = y; this.xv = BULLET_SPEED * Math.cos(a); this.yv = -BULLET_SPEED * Math.sin(a); this.d = 0; }
+            draw() { 
+                ctx.fillStyle = "#ff0000";
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = "red";
+                ctx.beginPath(); ctx.arc(this.x, this.y, 3, 0, Math.PI*2); ctx.fill(); 
+                ctx.shadowBlur = 0;
+            }
+            update(dt) { this.x += this.xv * dt; this.y += this.yv * dt; this.d += BULLET_MAX_DIST; }
+        }
+
+        class Asteroid {
+            constructor(x, y, r, xv, yv) {
+                this.x = x; this.y = y; this.r = r;
+                this.xv = xv || (Math.random() - 0.5) * ASTEROID_SPEED * 2;
+                this.yv = yv || (Math.random() - 0.5) * ASTEROID_SPEED * 2;
+                this.v = []; for(let i=0; i<10; i++) this.v.push(Math.random()*0.4 + 0.8);
+            }
+            draw() {
+                ctx.strokeStyle = "#718096"; ctx.lineWidth = 2; ctx.beginPath();
+                for(let i=0; i<10; i++) {
+                    let a = i * Math.PI * 2 / 10;
+                    let px = this.x + this.r * this.v[i] * Math.cos(a);
+                    let py = this.y + this.r * this.v[i] * Math.sin(a);
+                    if(i===0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+                }
+                ctx.closePath(); ctx.stroke();
+            }
+            update(dt) {
+                this.x += this.xv * dt; this.y += this.yv * dt;
+                if (this.x < -this.r) this.x = canvas.width + this.r; else if (this.x > canvas.width + this.r) this.x = -this.r;
+                if (this.y < -this.r) this.y = canvas.height + this.r; else if (this.y > canvas.height + this.r) this.y = -this.r;
+            }
+            shatter() {
+                playSound('explode');
+                score += (this.r > 30 ? 20 : this.r > 15 ? 50 : 100);
+                document.getElementById("score-display").innerText = `Score: ${score}`;
+                if (this.r > 15) {
+                    asteroids.push(new Asteroid(this.x, this.y, this.r / 2), new Asteroid(this.x, this.y, this.r / 2));
+                }
+            }
+        }
+
+        class Alien {
+            constructor() {
+                this.x = Math.random() < 0.5 ? 0 : canvas.width;
+                this.y = Math.random() * canvas.height;
+                this.xv = (this.x === 0 ? 1 : -1) * ALIEN_SPEED;
+                this.yv = (Math.random() - 0.5) * ALIEN_SPEED;
+                this.r = 15; this.ct = 0;
+            }
+            draw() {
+                ctx.fillStyle = "#4c51bf"; ctx.beginPath(); ctx.ellipse(this.x, this.y, 20, 10, 0, 0, Math.PI*2); ctx.fill();
+                ctx.fillStyle = "#63b3ed"; ctx.beginPath(); ctx.arc(this.x, this.y-5, 8, 0, Math.PI*2); ctx.fill();
+            }
+            update(dt) {
+                this.x += this.xv * dt; this.y += this.yv * dt;
+                this.ct += dt; 
+                if(this.ct > 1) { 
+                    this.ct = 0; 
+                    playSound('alien-shoot'); 
+                    alienBullets.push(new Bullet(this.x, this.y, Math.atan2(ship.y-this.y, ship.x-this.x))); 
+                }
+            }
+        }
+
+        function gameLoop(time) {
+            if (game_over) return;
+            const dt = (time - lastTime) / 1000; lastTime = time;
+            ctx.fillStyle = "#010409"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            ship.updateFromKeys(); ship.update(dt); ship.draw(dt);
+            invulnerability_timer -= dt;
+
+            if (level >= 2 && Math.random() < ALIEN_SPAWN_CHANCE) aliens.push(new Alien());
+
+            asteroids.forEach(a => { a.update(dt); a.draw(); });
+            
+            bullets.forEach((b, i) => { 
+                b.update(dt); b.draw(); 
+                if (b.x < 0 || b.x > canvas.width || b.y < 0 || b.y > canvas.height) bullets.splice(i, 1);
+                asteroids.forEach((ast, ai) => {
+                    if (distanceBetweenPoints(b.x, b.y, ast.x, ast.y) < ast.r) {
+                        bullets.splice(i, 1); ast.shatter(); asteroids.splice(ai, 1);
+                    }
+                });
+                aliens.forEach((al, ali) => {
+                    if (distanceBetweenPoints(b.x, b.y, al.x, al.y) < al.r + 5) {
+                        bullets.splice(i, 1);
+                        aliens.splice(ali, 1);
+                        score += ALIEN_POINTS;
+                        document.getElementById("score-display").innerText = `Score: ${score}`;
+                        playSound('explode');
+                    }
+                });
+            });
+
+            alienBullets.forEach((ab, i) => {
+                ab.update(dt); ab.draw();
+                if (ab.x < 0 || ab.x > canvas.width || ab.y < 0 || ab.y > canvas.height) alienBullets.splice(i, 1);
+                if (distanceBetweenPoints(ab.x, ab.y, ship.x, ship.y) < ship.r && !ship_exploding && invulnerability_timer <= 0) {
+                    alienBullets.splice(i, 1);
+                    ship.explode();
+                }
+            });
+
+            aliens.forEach((al, i) => {
+                al.update(dt); al.draw();
+                if (distanceBetweenPoints(ship.x, ship.y, al.x, al.y) < ship.r + al.r && !ship_exploding && invulnerability_timer <= 0) {
+                    ship.explode();
+                }
+            });
+
+            if (!ship_exploding && invulnerability_timer <= 0) {
+                asteroids.forEach(a => { 
+                    if (distanceBetweenPoints(ship.x, ship.y, a.x, a.y) < ship.r + a.r) {
+                        ship.explode();
+                    }
+                });
+            }
+
+            if (text_alpha > 0) {
+                ctx.fillStyle = `rgba(255,255,255,${text_alpha})`; ctx.font = "bold 30px Orbitron"; ctx.textAlign = "center";
+                ctx.fillText(text, canvas.width/2, canvas.height/2); text_alpha -= dt * 0.4;
+            }
+
+            if (asteroids.length === 0 && aliens.length === 0) newLevel();
+            requestAnimationFrame(gameLoop);
+        }
+
+        function gameOver() {
+            game_over = true;
+            document.getElementById("final-score").innerText = score;
+            document.getElementById("game-over").classList.remove("hidden");
+            loadScores();
+        }
+
+        function distanceBetweenPoints(x1, y1, x2, y2) { return Math.sqrt((x2-x1)**2 + (y2-y1)**2); }
+
+        document.getElementById('submit-score-btn').onclick = () => {
+            const name = document.getElementById('player-name').value || "Pilot";
+            saveScore(name, score);
+            newGame();
+        };
+
+        window.onload = () => { setupCanvasSize(); initFirebase().then(newGame); };
+        window.addEventListener('resize', setupCanvasSize);
+    </script>
+</body>
+</html>
